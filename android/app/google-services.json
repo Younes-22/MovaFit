@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1086619094421",
+    "project_id": "movafit-a2eef",
+    "storage_bucket": "movafit-a2eef.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1086619094421:android:6ebc217fca4b5e9cc37a9c",
+        "android_client_info": {
+          "package_name": "com.example.motivafit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBfqdv9U01ZgJmNoskds9ybJTXVmFOmzQI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
