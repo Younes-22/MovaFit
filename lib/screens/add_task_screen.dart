@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart'; // Import for date formatting
 import '../models/task_model.dart';
 import '../services/firestore_service.dart';
 
 class AddTaskScreen extends StatefulWidget {
   final String? initialCategory;
+  final DateTime? initialDate; // Allow passing a date
 
-  const AddTaskScreen({super.key, this.initialCategory});
+  const AddTaskScreen({
+    super.key, 
+    this.initialCategory,
+    this.initialDate,
+  });
 
   @override
   State<AddTaskScreen> createState() => _AddTaskScreenState();
@@ -15,7 +21,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _titleController = TextEditingController();
   TaskDifficulty _difficulty = TaskDifficulty.easy;
   TaskPriority _priority = TaskPriority.normal;
-  String _category = 'Workout'; // Default
+  String _category = 'Workout';
+  late DateTime _selectedDate; // State for date
   bool _isLoading = false;
 
   @override
@@ -23,6 +30,23 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     super.initState();
     if (widget.initialCategory != null) {
       _category = widget.initialCategory!;
+    }
+    // Default to the passed date or Today
+    _selectedDate = widget.initialDate ?? DateTime.now();
+  }
+
+  // Show the Native Date Picker
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
     }
   }
 
@@ -36,7 +60,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         category: _category,
         difficulty: _difficulty,
         priority: _priority,
-        date: DateTime.now(),
+        date: _selectedDate, // Use the selected date
       );
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -52,53 +76,75 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       appBar: AppBar(title: const Text('Add Task')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(labelText: 'Task Title', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _category,
-              decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder()),
-              items: ['Workout', 'Nutrition', 'Wellness', 'Custom']
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                  .toList(),
-              onChanged: (val) => setState(() => _category = val!),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<TaskDifficulty>(
-                    value: _difficulty,
-                    decoration: const InputDecoration(labelText: 'Difficulty', border: OutlineInputBorder()),
-                    items: TaskDifficulty.values.map((d) => DropdownMenuItem(value: d, child: Text(d.name.toUpperCase()))).toList(),
-                    onChanged: (v) => setState(() => _difficulty = v!),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: DropdownButtonFormField<TaskPriority>(
-                    value: _priority,
-                    decoration: const InputDecoration(labelText: 'Priority', border: OutlineInputBorder()),
-                    items: TaskPriority.values.map((p) => DropdownMenuItem(value: p, child: Text(p.name.toUpperCase()))).toList(),
-                    onChanged: (v) => setState(() => _priority = v!),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: FilledButton(
-                onPressed: _isLoading ? null : _submit,
-                child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Create Task'),
+        child: SingleChildScrollView( // Added scrolling for smaller screens
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _titleController,
+                decoration: const InputDecoration(labelText: 'Task Title', border: OutlineInputBorder()),
               ),
-            )
-          ],
+              const SizedBox(height: 16),
+              
+              // --- DATE PICKER ROW ---
+              InkWell(
+                onTap: _pickDate,
+                borderRadius: BorderRadius.circular(12),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Scheduled Date',
+                    border: OutlineInputBorder(),
+                    suffixIcon: Icon(Icons.calendar_today),
+                  ),
+                  child: Text(
+                    DateFormat.yMMMd().format(_selectedDate),
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              DropdownButtonFormField<String>(
+                value: _category,
+                decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder()),
+                items: ['Workout', 'Nutrition', 'Wellness', 'Custom']
+                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                    .toList(),
+                onChanged: (val) => setState(() => _category = val!),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<TaskDifficulty>(
+                      value: _difficulty,
+                      decoration: const InputDecoration(labelText: 'Difficulty', border: OutlineInputBorder()),
+                      items: TaskDifficulty.values.map((d) => DropdownMenuItem(value: d, child: Text(d.name.toUpperCase()))).toList(),
+                      onChanged: (v) => setState(() => _difficulty = v!),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: DropdownButtonFormField<TaskPriority>(
+                      value: _priority,
+                      decoration: const InputDecoration(labelText: 'Priority', border: OutlineInputBorder()),
+                      items: TaskPriority.values.map((p) => DropdownMenuItem(value: p, child: Text(p.name.toUpperCase()))).toList(),
+                      onChanged: (v) => setState(() => _priority = v!),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: FilledButton(
+                  onPressed: _isLoading ? null : _submit,
+                  child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Create Task'),
+                ),
+              )
+            ],
+          ),
         ),
       ),
     );
