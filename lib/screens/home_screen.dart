@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:table_calendar/table_calendar.dart'; // Import Calendar
+import 'package:table_calendar/table_calendar.dart'; // Calendar Package
 import '../models/task_model.dart';
 import '../models/user_model.dart';
 import '../services/firestore_service.dart';
-import '../services/auth_service.dart';
 import '../widgets/progress_card.dart';
 import '../widgets/task_tile.dart';
+import '../widgets/quote_widget.dart'; // Motivational Quote
+import '../widgets/completion_chart.dart'; // <--- NEW IMPORT
 import 'add_task_screen.dart';
 import 'shop_screen.dart';
 import 'settings_screen.dart';
+import 'nutrition_screen.dart'; 
+import 'workout_screen.dart';   
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // Keep track of which tasks are currently loading to prevent double-clicks
   final Set<String> _updatingTaskIds = {}; 
   
   // --- CALENDAR STATE ---
@@ -28,11 +32,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Run the rollover check after the widget builds
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _runDailyCheck();
     });
   }
 
+  // --- DAILY ROLLOVER CHECK ---
   void _runDailyCheck() async {
     final firestore = FirestoreService();
     final summary = await firestore.checkDailyRollover();
@@ -54,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // --- LEVEL UP DIALOG ---
   void _showLevelUpDialog() {
     showDialog(
       context: context,
@@ -83,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 
+  // Generic Task Navigation
   void _navigateToAddTask(BuildContext context, {String? category}) {
     Navigator.push(
       context,
@@ -96,6 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Safe Toggle Method to handle Firestore transactions
   Future<void> _handleTaskToggle(Task task, bool newValue, FirestoreService firestore) async {
     setState(() {
       _updatingTaskIds.add(task.id);
@@ -171,11 +180,16 @@ class _HomeScreenState extends State<HomeScreen> {
               
               const SizedBox(height: 24),
 
+              // --- MOTIVATIONAL QUOTE WIDGET ---
+              const QuoteWidget(), 
+
+              const SizedBox(height: 24),
+
               // --- Progress Card ---
               StreamBuilder<UserModel>(
                 stream: firestore.getUserStream(),
                 builder: (context, snapshot) {
-                  if (snapshot.hasError) return const SizedBox.shrink(); // Hide error for UI cleaness
+                  if (snapshot.hasError) return const SizedBox.shrink(); 
                   if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
                   final user = snapshot.data!;
@@ -204,9 +218,40 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisSpacing: 12,
                 childAspectRatio: 2.5,
                 children: [
-                  _buildActionButton(context, Icons.directions_run, 'Log Workout', Colors.orange, 'Workout'),
-                  _buildActionButton(context, Icons.restaurant, 'Log Meal', Colors.green, 'Nutrition'),
+                  // 1. Log Workout (Opens WorkoutScreen)
+                  _buildActionButton(
+                    context, 
+                    Icons.directions_run, 
+                    'Log Workout', 
+                    Colors.orange, 
+                    'Workout',
+                    onPressedOverride: () {
+                      Navigator.push(
+                        context, 
+                        MaterialPageRoute(builder: (_) => const WorkoutScreen())
+                      );
+                    },
+                  ),
+                  
+                  // 2. Nutrition Tracker (Opens NutritionScreen)
+                  _buildActionButton(
+                    context, 
+                    Icons.restaurant, 
+                    'Log Meal', 
+                    Colors.green, 
+                    'Nutrition',
+                    onPressedOverride: () {
+                      Navigator.push(
+                        context, 
+                        MaterialPageRoute(builder: (_) => const NutritionScreen())
+                      );
+                    },
+                  ),
+                  
+                  // 3. Generic Water (Still a generic task for now)
                   _buildActionButton(context, Icons.local_drink, 'Log Water', Colors.blue, 'Nutrition'),
+                  
+                  // 4. Custom Task
                   _buildActionButton(context, Icons.add, 'Custom', Colors.purple, 'Custom'),
                 ],
               ),
@@ -214,7 +259,6 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 32),
 
               // --- CALENDAR WIDGET ---
-              // Replaces the static "Today's Tasks" text
               Card(
                 elevation: 0,
                 color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
@@ -252,10 +296,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 24), // Spacing
+
+              // --- NEW: COMPLETION CHART ---
+              const CompletionChart(),
+
               const SizedBox(height: 16),
 
-              // --- Tasks List (Filtered by Selected Date) ---
-              // Note: We use _selectedDay here instead of DateTime.now()
+              // --- Tasks List (Filtered by Calendar Selection) ---
               StreamBuilder<List<Task>>(
                 stream: firestore.getTasksForDay(_selectedDay), 
                 builder: (context, snapshot) {
@@ -310,7 +358,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildActionButton(BuildContext context, IconData icon, String label, Color color, String category) {
+  // Updated Button Builder with optional Override
+  Widget _buildActionButton(BuildContext context, IconData icon, String label, Color color, String category, {VoidCallback? onPressedOverride}) {
     return Container(
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
@@ -318,7 +367,8 @@ class _HomeScreenState extends State<HomeScreen> {
         border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: InkWell(
-        onTap: () => _navigateToAddTask(context, category: category),
+        // Use the override if provided, otherwise default to Task Creator
+        onTap: onPressedOverride ?? () => _navigateToAddTask(context, category: category),
         borderRadius: BorderRadius.circular(16),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

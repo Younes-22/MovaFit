@@ -8,7 +8,13 @@ class UserModel {
   final int currentXP;
   final int currentCoins;
   final List<String> unlockedRewardIds;
-  final String selectedAvatarId; // <--- NEW FIELD
+  final String selectedAvatarId;
+  
+  // --- NEW: NUTRITION GOALS ---
+  final int calorieGoal;
+  final int proteinGoal; // in grams
+  final int carbsGoal;   // in grams
+  final int fatGoal;     // in grams
 
   UserModel({
     required this.uid,
@@ -18,7 +24,12 @@ class UserModel {
     this.currentXP = 0,
     this.currentCoins = 0,
     this.unlockedRewardIds = const [],
-    this.selectedAvatarId = 'default', // Default avatar
+    this.selectedAvatarId = 'default',
+    // Default Goals
+    this.calorieGoal = 2000,
+    this.proteinGoal = 150,
+    this.carbsGoal = 200,
+    this.fatGoal = 70,
   });
 
   factory UserModel.fromSnapshot(DocumentSnapshot doc) {
@@ -32,6 +43,11 @@ class UserModel {
       currentCoins: data['currentCoins'] ?? 0,
       unlockedRewardIds: List<String>.from(data['unlockedRewardIds'] ?? []),
       selectedAvatarId: data['selectedAvatarId'] ?? 'default',
+      // Parse Goals
+      calorieGoal: data['calorieGoal'] ?? 2000,
+      proteinGoal: data['proteinGoal'] ?? 150,
+      carbsGoal: data['carbsGoal'] ?? 200,
+      fatGoal: data['fatGoal'] ?? 70,
     );
   }
 
@@ -45,6 +61,11 @@ class UserModel {
       'unlockedRewardIds': unlockedRewardIds,
       'selectedAvatarId': selectedAvatarId,
       'lastActiveDate': FieldValue.serverTimestamp(),
+      // Save Goals
+      'calorieGoal': calorieGoal,
+      'proteinGoal': proteinGoal,
+      'carbsGoal': carbsGoal,
+      'fatGoal': fatGoal,
     };
   }
 }

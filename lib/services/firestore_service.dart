@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/user_model.dart';
 import '../models/task_model.dart';
 import '../models/reward_model.dart';
+import '../models/nutrition_model.dart';
+import '../models/workout_model.dart'; // Ensure this contains WorkoutRoutine
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -12,7 +14,7 @@ class FirestoreService {
   String? get _uid => _auth.currentUser?.uid;
 
   // ===========================================================================
-  // USER PROFILE METHODS
+  // 1. USER PROFILE & GAMIFICATION METHODS
   // ===========================================================================
 
   Future<void> createUserProfile(User user, String username) async {
@@ -30,6 +32,11 @@ class FirestoreService {
         'selectedAvatarId': 'default', 
         'createdAt': FieldValue.serverTimestamp(),
         'lastActiveDate': FieldValue.serverTimestamp(),
+        // Default Nutrition Goals
+        'calorieGoal': 2000,
+        'proteinGoal': 150,
+        'carbsGoal': 200,
+        'fatGoal': 70,
       });
     }
   }
@@ -47,8 +54,36 @@ class FirestoreService {
     });
   }
 
+  // --- INTERNAL HELPER: AWARD XP & COINS ---
+  // Returns TRUE if the user leveled up
+  Future<bool> _awardRewards(Transaction transaction, DocumentReference userRef, int xp, int coins) async {
+    final userSnapshot = await transaction.get(userRef);
+    if (!userSnapshot.exists) return false;
+
+    final user = UserModel.fromSnapshot(userSnapshot);
+    
+    int newXP = user.currentXP + xp;
+    int newCoins = user.currentCoins + coins;
+    int newLevel = user.currentLevel;
+
+    // Level Up Logic (500 XP per level)
+    int xpRequired = newLevel * 500;
+    if (newXP >= xpRequired) {
+      newLevel++;
+      newXP -= xpRequired; // Carry over excess XP
+    }
+
+    transaction.update(userRef, {
+      'currentXP': newXP,
+      'currentCoins': newCoins,
+      'currentLevel': newLevel,
+    });
+
+    return newLevel > user.currentLevel;
+  }
+
   // ===========================================================================
-  // TASK METHODS
+  // 2. TASK METHODS
   // ===========================================================================
 
   Stream<List<Task>> getTasksForDay(DateTime date) {
@@ -87,11 +122,7 @@ class FirestoreService {
       scheduledDate: cleanDate,
     );
 
-    await _db
-        .collection('users')
-        .doc(_uid)
-        .collection('tasks')
-        .add(newTask.toMap());
+    await _db.collection('users').doc(_uid).collection('tasks').add(newTask.toMap());
   }
 
   Future<bool> toggleTaskCompletion(Task task, bool newStatus) async {
@@ -113,6 +144,7 @@ class FirestoreService {
       int xpDelta = task.xpReward;
       int coinDelta = task.coinReward;
 
+      // If un-checking, remove rewards
       if (!newStatus) {
         xpDelta = -xpDelta;
         coinDelta = -coinDelta;
@@ -122,6 +154,7 @@ class FirestoreService {
       int newCoins = user.currentCoins + coinDelta;
       int newLevel = user.currentLevel;
 
+      // Calculate Level changes
       int xpRequired = newLevel * 500;
       if (newXP >= xpRequired) {
         newLevel++;
@@ -145,7 +178,7 @@ class FirestoreService {
   }
 
   // ===========================================================================
-  // SHOP & REWARD METHODS
+  // 3. SHOP & REWARD METHODS
   // ===========================================================================
 
   Stream<List<Reward>> getCustomRewards() {
@@ -164,25 +197,16 @@ class FirestoreService {
   Future<void> addCustomReward(String title, int cost) async {
     if (_uid == null) return;
     
-    await _db
-        .collection('users')
-        .doc(_uid)
-        .collection('custom_rewards')
-        .add({
-          'title': title,
-          'cost': cost,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+    await _db.collection('users').doc(_uid).collection('custom_rewards').add({
+      'title': title,
+      'cost': cost,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> deleteCustomReward(String rewardId) async {
     if (_uid == null) return;
-    await _db
-        .collection('users')
-        .doc(_uid)
-        .collection('custom_rewards')
-        .doc(rewardId)
-        .delete();
+    await _db.collection('users').doc(_uid).collection('custom_rewards').doc(rewardId).delete();
   }
 
   Future<String?> purchaseReward(Reward reward) async {
@@ -228,7 +252,227 @@ class FirestoreService {
   }
 
   // ===========================================================================
-  // DAILY ROLLOVER LOGIC
+  // 4. NUTRITION METHODS
+  // ===========================================================================
+
+  Future<void> updateNutritionGoals({
+    required int calories,
+    required int protein,
+    required int carbs,
+    required int fat,
+  }) async {
+    if (_uid == null) return;
+    await _db.collection('users').doc(_uid).update({
+      'calorieGoal': calories,
+      'proteinGoal': protein,
+      'carbsGoal': carbs,
+      'fatGoal': fat,
+    });
+  }
+
+  // REWARD: +10 XP, +2 Coins. Returns TRUE if Level Up.
+  Future<bool> logFood({
+    required int calories,
+    required int protein,
+    required int carbs,
+    required int fat,
+    required DateTime date,
+  }) async {
+    if (_uid == null) return false;
+
+    final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    final userRef = _db.collection('users').doc(_uid);
+    final nutritionRef = userRef.collection('nutrition').doc(dateId);
+
+    return await _db.runTransaction<bool>((transaction) async {
+      final nutritionDoc = await transaction.get(nutritionRef);
+
+      if (nutritionDoc.exists) {
+        transaction.update(nutritionRef, {
+          'calories': FieldValue.increment(calories),
+          'protein': FieldValue.increment(protein),
+          'carbs': FieldValue.increment(carbs),
+          'fat': FieldValue.increment(fat),
+        });
+      } else {
+        transaction.set(nutritionRef, {
+          'calories': calories,
+          'protein': protein,
+          'carbs': carbs,
+          'fat': fat,
+          'date': Timestamp.fromDate(date),
+        });
+      }
+
+      // Award Rewards
+      return await _awardRewards(transaction, userRef, 10, 2);
+    });
+  }
+
+  Stream<NutritionDay> getNutritionForDate(DateTime date) {
+    if (_uid == null) return const Stream.empty();
+    
+    final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    
+    return _db.collection('users').doc(_uid).collection('nutrition').doc(dateId)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists) {
+            return NutritionDay(id: dateId, calories: 0, protein: 0, carbs: 0, fat: 0, date: date);
+          }
+          return NutritionDay.fromSnapshot(doc);
+        });
+  }
+
+  Stream<List<NutritionDay>> getWeeklyNutrition() {
+    if (_uid == null) return const Stream.empty();
+
+    final now = DateTime.now();
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
+
+    return _db.collection('users').doc(_uid).collection('nutrition')
+        .where('date', isGreaterThan: Timestamp.fromDate(sevenDaysAgo))
+        .orderBy('date', descending: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => NutritionDay.fromSnapshot(doc)).toList());
+  }
+
+  // ===========================================================================
+  // 5. WORKOUT & ROUTINE METHODS
+  // ===========================================================================
+
+  // Log Single Exercise -> REWARD: +20 XP, +5 Coins
+  Future<bool> logExercise({
+    required String name,
+    required int sets,
+    required String reps,
+    required double weight,
+    required DateTime date,
+  }) async {
+    if (_uid == null) return false;
+
+    final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    final userRef = _db.collection('users').doc(_uid);
+    final workoutRef = userRef.collection('workouts').doc(dateId);
+
+    final newExercise = Exercise(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name,
+      sets: sets,
+      reps: reps,
+      weight: weight,
+    );
+
+    return await _db.runTransaction<bool>((transaction) async {
+      final snapshot = await transaction.get(workoutRef);
+
+      if (snapshot.exists) {
+        transaction.update(workoutRef, {
+          'exercises': FieldValue.arrayUnion([newExercise.toMap()]),
+        });
+      } else {
+        transaction.set(workoutRef, {
+          'date': Timestamp.fromDate(date),
+          'exercises': [newExercise.toMap()],
+          'isCompleted': false,
+        });
+      }
+
+      return await _awardRewards(transaction, userRef, 20, 5);
+    });
+  }
+
+  // Create Saved Routine (Plan)
+  Future<void> createRoutine(String name, List<Exercise> exercises) async {
+    if (_uid == null) return;
+    await _db.collection('users').doc(_uid).collection('routines').add({
+      'name': name,
+      'exercises': exercises.map((e) => e.toMap()).toList(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // Get Saved Routines
+  Stream<List<WorkoutRoutine>> getRoutines() {
+    if (_uid == null) return const Stream.empty();
+    return _db.collection('users').doc(_uid).collection('routines')
+        .orderBy('name')
+        .snapshots()
+        .map((s) => s.docs.map((d) => WorkoutRoutine.fromSnapshot(d)).toList());
+  }
+
+  // Load Routine into Today's Workout
+  Future<void> loadRoutineIntoToday(WorkoutRoutine routine, DateTime date) async {
+    if (_uid == null) return;
+    final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    final workoutRef = _db.collection('users').doc(_uid).collection('workouts').doc(dateId);
+
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(workoutRef);
+      final exercisesData = routine.exercises.map((e) => e.toMap()).toList();
+
+      if (snapshot.exists) {
+        transaction.update(workoutRef, {
+          'exercises': FieldValue.arrayUnion(exercisesData),
+        });
+      } else {
+        transaction.set(workoutRef, {
+          'date': Timestamp.fromDate(date),
+          'exercises': exercisesData,
+          'isCompleted': false,
+        });
+      }
+    });
+  }
+
+  // FINISH WORKOUT -> BIG REWARD: +100 XP, +20 Coins
+  Future<bool> finishWorkout(DateTime date) async {
+    if (_uid == null) return false;
+    final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    final userRef = _db.collection('users').doc(_uid);
+    final workoutRef = userRef.collection('workouts').doc(dateId);
+
+    return await _db.runTransaction<bool>((transaction) async {
+      final workoutDoc = await transaction.get(workoutRef);
+      if (!workoutDoc.exists) return false; 
+      if (workoutDoc.get('isCompleted') == true) return false; // Already finished
+
+      transaction.update(workoutRef, {'isCompleted': true});
+      return await _awardRewards(transaction, userRef, 100, 20);
+    });
+  }
+
+  Future<void> deleteExercise(DateTime date, Exercise exercise) async {
+    if (_uid == null) return;
+    final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    
+    await _db.collection('users').doc(_uid).collection('workouts').doc(dateId).update({
+      'exercises': FieldValue.arrayRemove([exercise.toMap()])
+    });
+  }
+
+  Future<void> deleteRoutine(String routineId) async {
+    if (_uid == null) return;
+    await _db.collection('users').doc(_uid).collection('routines').doc(routineId).delete();
+  }
+
+  Stream<WorkoutDay> getWorkoutForDate(DateTime date) {
+    if (_uid == null) return const Stream.empty();
+    
+    final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    
+    return _db.collection('users').doc(_uid).collection('workouts').doc(dateId)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists) {
+            return WorkoutDay(id: dateId, date: date, exercises: []);
+          }
+          return WorkoutDay.fromSnapshot(doc);
+        });
+  }
+
+  // ===========================================================================
+  // 6. DAILY ROLLOVER LOGIC (Penalties)
   // ===========================================================================
 
   Future<String?> checkDailyRollover() async {
@@ -249,16 +493,14 @@ class FirestoreService {
     final lastActiveDay = DateTime(lastActive.year, lastActive.month, lastActive.day);
     final currentDay = DateTime(now.year, now.month, now.day);
 
+    // Only run if it's a new day
     if (currentDay.isBefore(lastActiveDay) || currentDay.isAtSameMomentAs(lastActiveDay)) {
       return null;
     }
 
     final endOfLastActiveDay = DateTime(lastActiveDay.year, lastActiveDay.month, lastActiveDay.day, 23, 59, 59);
 
-    final tasksSnapshot = await _db
-        .collection('users')
-        .doc(_uid)
-        .collection('tasks')
+    final tasksSnapshot = await _db.collection('users').doc(_uid).collection('tasks')
         .where('scheduledDate', isGreaterThanOrEqualTo: Timestamp.fromDate(lastActiveDay))
         .where('scheduledDate', isLessThanOrEqualTo: Timestamp.fromDate(endOfLastActiveDay))
         .where('isCompleted', isEqualTo: false) 
@@ -269,7 +511,6 @@ class FirestoreService {
 
     for (var doc in tasksSnapshot.docs) {
       final task = Task.fromSnapshot(doc);
-      
       int penalty = 0;
       switch (task.priority) {
         case TaskPriority.low: penalty = 5; break;
@@ -293,10 +534,9 @@ class FirestoreService {
   }
 
   // ===========================================================================
-  // DEBUG / SETTINGS METHODS
+  // 7. DEBUG / SETTINGS
   // ===========================================================================
   
-  // Resets the user's progress for testing/demo purposes
   Future<void> resetAccount() async {
     if (_uid == null) return;
     
@@ -306,7 +546,6 @@ class FirestoreService {
       'currentCoins': 0,
       'unlockedRewardIds': [],
       'selectedAvatarId': 'default',
-      // Note: We are NOT deleting tasks here, just resetting stats.
     });
   }
 }
