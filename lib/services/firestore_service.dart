@@ -37,7 +37,7 @@ class FirestoreService {
         'proteinGoal': 150,
         'carbsGoal': 200,
         'fatGoal': 70,
-        'targetWorkoutsPerWeek': 3, // <--- NEW DEFAULT
+        'targetWorkoutsPerWeek': 3, 
       });
     }
   }
@@ -55,16 +55,13 @@ class FirestoreService {
     });
   }
 
-  Future<bool> _awardRewards(Transaction transaction, DocumentReference userRef, int xp, int coins) async {
-    final userSnapshot = await transaction.get(userRef);
-    if (!userSnapshot.exists) return false;
-
-    final user = UserModel.fromSnapshot(userSnapshot);
-    
+  // --- INTERNAL HELPER: AWARD XP & COINS ---
+  // FIXED: No longer performs a "read" (get), keeping transactions safe!
+  bool _applyRewards(Transaction transaction, DocumentReference userRef, UserModel user, int xp, int coins, {List<String>? updatedBadges}) {
     int newXP = user.currentXP + xp;
     int newCoins = user.currentCoins + coins;
     int newLevel = user.currentLevel;
-    List<String> currentBadges = List.from(user.earnedBadges);
+    List<String> currentBadges = updatedBadges ?? List.from(user.earnedBadges);
 
     int xpRequired = newLevel * 500;
     if (newXP >= xpRequired) {
@@ -142,6 +139,7 @@ class FirestoreService {
     final taskRef = userRef.collection('tasks').doc(task.id);
 
     return await _db.runTransaction<bool>((transaction) async {
+      // READS FIRST
       final userSnapshot = await transaction.get(userRef);
       final taskSnapshot = await transaction.get(taskRef);
 
@@ -182,6 +180,7 @@ class FirestoreService {
       
       bool didLevelUp = newLevel > user.currentLevel;
 
+      // WRITES SECOND
       transaction.update(taskRef, {'isCompleted': newStatus});
       transaction.update(userRef, {
         'currentXP': newXP,
@@ -304,20 +303,26 @@ class FirestoreService {
     final userRef = _db.collection('users').doc(_uid);
     final nutritionRef = userRef.collection('nutrition').doc(dateId);
 
-    int dynamicMealDmg = 43; // Default
+    int dynamicMealDmg = 43; 
 
     bool leveledUp = await _db.runTransaction<bool>((transaction) async {
+      // 1. ALL READS FIRST
       final nutritionDoc = await transaction.get(nutritionRef);
       final userSnapshot = await transaction.get(userRef);
+      if (!userSnapshot.exists) return false;
+      
       final user = UserModel.fromSnapshot(userSnapshot);
       
-      // Calculate Damage dynamically!
       dynamicMealDmg = user.targetWorkoutsPerWeek > 0 
           ? (300 / 7).round() 
           : (1000 / 7).round();
 
       List<String> currentBadges = List.from(user.earnedBadges);
+      if (!currentBadges.contains('first_meal')) {
+        currentBadges.add('first_meal');
+      }
 
+      // 2. ALL WRITES SECOND
       if (nutritionDoc.exists) {
         transaction.update(nutritionRef, {
           'calories': FieldValue.increment(calories),
@@ -333,14 +338,9 @@ class FirestoreService {
           'fat': fat,
           'date': Timestamp.fromDate(date),
         });
-        
-        if (!currentBadges.contains('first_meal')) {
-          currentBadges.add('first_meal');
-          transaction.update(userRef, {'earnedBadges': currentBadges});
-        }
       }
 
-      return await _awardRewards(transaction, userRef, 10, 2);
+      return _applyRewards(transaction, userRef, user, 10, 2, updatedBadges: currentBadges);
     });
 
     await _dealBossDamage(dynamicMealDmg);
@@ -401,9 +401,15 @@ class FirestoreService {
     );
 
     return await _db.runTransaction<bool>((transaction) async {
-      final snapshot = await transaction.get(workoutRef);
+      // 1. ALL READS FIRST
+      final workoutSnapshot = await transaction.get(workoutRef);
+      final userSnapshot = await transaction.get(userRef);
+      
+      if (!userSnapshot.exists) return false;
+      final user = UserModel.fromSnapshot(userSnapshot);
 
-      if (snapshot.exists) {
+      // 2. ALL WRITES SECOND
+      if (workoutSnapshot.exists) {
         transaction.update(workoutRef, {
           'exercises': FieldValue.arrayUnion([newExercise.toMap()]),
         });
@@ -415,7 +421,7 @@ class FirestoreService {
         });
       }
 
-      return await _awardRewards(transaction, userRef, 20, 5);
+      return _applyRewards(transaction, userRef, user, 20, 5);
     });
   }
 
@@ -442,7 +448,7 @@ class FirestoreService {
     final workoutRef = _db.collection('users').doc(_uid).collection('workouts').doc(dateId);
 
     await _db.runTransaction((transaction) async {
-      final snapshot = await transaction.get(workoutRef);
+      final snapshot = await transaction.get(workoutRef); // Safe: No reads happen after the writes below
       final exercisesData = routine.exercises.map((e) => e.toMap()).toList();
 
       if (snapshot.exists) {
@@ -468,28 +474,28 @@ class FirestoreService {
     int dynamicWorkoutDmg = 0;
 
     bool leveledUp = await _db.runTransaction<bool>((transaction) async {
+      // 1. ALL READS FIRST
       final workoutDoc = await transaction.get(workoutRef);
       if (!workoutDoc.exists) return false; 
       if (workoutDoc.get('isCompleted') == true) return false; 
 
-      transaction.update(workoutRef, {'isCompleted': true});
-      
       final userSnapshot = await transaction.get(userRef);
+      if (!userSnapshot.exists) return false;
+      
       final user = UserModel.fromSnapshot(userSnapshot);
       
-      // Calculate Damage dynamically!
       dynamicWorkoutDmg = user.targetWorkoutsPerWeek > 0 
           ? (700 / user.targetWorkoutsPerWeek).round() 
           : 0;
 
       List<String> currentBadges = List.from(user.earnedBadges);
-      
       if (!currentBadges.contains('first_workout')) {
         currentBadges.add('first_workout');
-        transaction.update(userRef, {'earnedBadges': currentBadges});
       }
 
-      return await _awardRewards(transaction, userRef, 100, 20);
+      // 2. ALL WRITES SECOND
+      transaction.update(workoutRef, {'isCompleted': true});
+      return _applyRewards(transaction, userRef, user, 100, 20, updatedBadges: currentBadges);
     });
 
     if (dynamicWorkoutDmg > 0) {
@@ -693,16 +699,13 @@ class FirestoreService {
         if (userSnapshot.exists) {
           final user = UserModel.fromSnapshot(userSnapshot);
           
-          int bonusXp = 500;
-          int bonusCoins = 100;
           List<String> badges = List.from(user.earnedBadges);
           
           if (!badges.contains('boss_slayer_1')) {
             badges.add('boss_slayer_1');
           }
 
-          await _awardRewards(transaction, userRef, bonusXp, bonusCoins);
-          transaction.update(userRef, {'earnedBadges': badges});
+          _applyRewards(transaction, userRef, user, 500, 100, updatedBadges: badges);
         }
       }
     });

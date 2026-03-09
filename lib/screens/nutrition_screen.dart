@@ -19,7 +19,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
 
   // --- ACTIONS ---
 
-  // 1. FIXED: Barcode Scanner with "Lock"
   Future<void> _scanBarcode(BuildContext context) async {
     // Navigate to the scanner page
     final result = await Navigator.push(
@@ -179,12 +178,25 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
-  // 3. Log Food Dialog (With Reward Logic)
+  // 3. Log Food Dialog (With Real-time Macro Calculation)
   void _showLogFoodDialog(BuildContext context, {FoodItem? initialFood}) {
+    final servingController = TextEditingController(text: '100');
     final calController = TextEditingController(text: initialFood?.calories.toString() ?? '');
     final protController = TextEditingController(text: initialFood?.protein.toString() ?? '');
     final carbController = TextEditingController(text: initialFood?.carbs.toString() ?? '');
     final fatController = TextEditingController(text: initialFood?.fat.toString() ?? '');
+
+    // Dynamically recalculate macros based on the grams entered
+    void recalculateMacros() {
+      if (initialFood == null) return;
+      final amount = double.tryParse(servingController.text) ?? 0.0;
+      final multiplier = amount / 100.0;
+      
+      calController.text = (initialFood.calories * multiplier).round().toString();
+      protController.text = (initialFood.protein * multiplier).round().toString();
+      carbController.text = (initialFood.carbs * multiplier).round().toString();
+      fatController.text = (initialFood.fat * multiplier).round().toString();
+    }
 
     showDialog(
       context: context,
@@ -194,11 +206,23 @@ class _NutritionScreenState extends State<NutritionScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (initialFood != null) 
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 16.0),
-                  child: Text('Values per 100g (Adjust as needed)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              if (initialFood != null) ...[
+                TextField(
+                  controller: servingController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount Consumed',
+                    suffixText: 'g / ml',
+                  ),
+                  onChanged: (val) => recalculateMacros(), // Trigger math when typed!
                 ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8.0, top: 4.0),
+                  child: Text('Calculated Nutritional Values:', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                ),
+              ],
               TextField(
                 controller: calController,
                 keyboardType: TextInputType.number,
@@ -233,7 +257,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
               final f = int.tryParse(fatController.text) ?? 0;
 
               if (cals > 0) {
-                // Call Firestore and wait for result
                 bool leveledUp = await FirestoreService().logFood(
                   calories: cals, protein: p, carbs: c, fat: f, 
                   date: DateTime.now()

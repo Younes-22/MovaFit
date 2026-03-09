@@ -59,7 +59,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with SingleTickerProvider
               final reps = repsController.text.trim();
               final weight = double.tryParse(weightController.text) ?? 0.0;
 
-              // FIXED: Reps is now a string (e.g., "8-12" or "Failure" is allowed)
               // Validation: Only Name and Sets are strictly required to start
               if (name.isNotEmpty && sets > 0) {
                 final ex = Exercise(
@@ -202,6 +201,31 @@ class _WorkoutScreenState extends State<WorkoutScreen> with SingleTickerProvider
         final workout = snapshot.data!;
         final exercises = workout.exercises;
 
+        // --- 1. COMPLETION STATE ---
+        // If the workout is finished, hide the list entirely and show the victory graphic!
+        if (workout.isCompleted) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.emoji_events, size: 100, color: Colors.amber),
+                const SizedBox(height: 24),
+                const Text(
+                  "Workout Complete!",
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "You crushed it today.\nXP and Coins have been awarded!",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // --- 2. EMPTY STATE ---
         if (exercises.isEmpty) {
           return Center(
             child: Column(
@@ -225,6 +249,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with SingleTickerProvider
           );
         }
 
+        // --- 3. ACTIVE WORKOUT STATE ---
         return Column(
           children: [
             Expanded(
@@ -246,32 +271,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> with SingleTickerProvider
                 },
               ),
             ),
-            if (!workout.isCompleted)
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(backgroundColor: Colors.green),
-                    onPressed: () => _finishWorkout(context),
-                    child: const Text('FINISH WORKOUT (Claim Reward)'),
-                  ),
+            
+            // Allow adding more exercises while actively working out
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: OutlinedButton.icon(
+                onPressed: () => _showAddExerciseDialog(context),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Another Exercise'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
                 ),
               ),
-            if (workout.isCompleted)
-               Container(
-                 padding: const EdgeInsets.all(16),
-                 color: Colors.green.withOpacity(0.1),
-                 child: const Row(
-                   mainAxisAlignment: MainAxisAlignment.center,
-                   children: [
-                     Icon(Icons.check_circle, color: Colors.green),
-                     SizedBox(width: 8),
-                     Text("Workout Completed!", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                   ],
-                 ),
-               ),
+            ),
+            const SizedBox(height: 12),
+            
+            // Finish Button
+            Padding(
+              padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 24.0),
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                onPressed: () => _finishWorkout(context),
+                child: const Text('FINISH WORKOUT (Claim Reward)', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
           ],
         );
       },
