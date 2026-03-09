@@ -4,13 +4,13 @@ import '../models/user_model.dart';
 import '../models/task_model.dart';
 import '../models/reward_model.dart';
 import '../models/nutrition_model.dart';
-import '../models/workout_model.dart'; // Ensure this contains WorkoutRoutine
+import '../models/workout_model.dart'; 
+import '../models/boss_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Helper to get the current User ID safely
   String? get _uid => _auth.currentUser?.uid;
 
   // ===========================================================================
@@ -30,13 +30,14 @@ class FirestoreService {
         'currentCoins': 0,
         'unlockedRewardIds': [], 
         'selectedAvatarId': 'default', 
+        'earnedBadges': [], 
         'createdAt': FieldValue.serverTimestamp(),
         'lastActiveDate': FieldValue.serverTimestamp(),
-        // Default Nutrition Goals
         'calorieGoal': 2000,
         'proteinGoal': 150,
         'carbsGoal': 200,
         'fatGoal': 70,
+        'targetWorkoutsPerWeek': 3, // <--- NEW DEFAULT
       });
     }
   }
@@ -54,8 +55,6 @@ class FirestoreService {
     });
   }
 
-  // --- INTERNAL HELPER: AWARD XP & COINS ---
-  // Returns TRUE if the user leveled up
   Future<bool> _awardRewards(Transaction transaction, DocumentReference userRef, int xp, int coins) async {
     final userSnapshot = await transaction.get(userRef);
     if (!userSnapshot.exists) return false;
@@ -65,18 +64,29 @@ class FirestoreService {
     int newXP = user.currentXP + xp;
     int newCoins = user.currentCoins + coins;
     int newLevel = user.currentLevel;
+    List<String> currentBadges = List.from(user.earnedBadges);
 
-    // Level Up Logic (500 XP per level)
     int xpRequired = newLevel * 500;
     if (newXP >= xpRequired) {
       newLevel++;
-      newXP -= xpRequired; // Carry over excess XP
+      newXP -= xpRequired; 
+      
+      if (newLevel >= 5 && !currentBadges.contains('level_5')) {
+        currentBadges.add('level_5');
+      }
+      if (newLevel >= 50 && !currentBadges.contains('level_50')) {
+        currentBadges.add('level_50');
+      }
+    } else if (newXP < 0 && newLevel > 1) {
+      newLevel--;
+      newXP += (newLevel * 500);
     }
 
     transaction.update(userRef, {
       'currentXP': newXP,
       'currentCoins': newCoins,
       'currentLevel': newLevel,
+      'earnedBadges': currentBadges,
     });
 
     return newLevel > user.currentLevel;
@@ -144,7 +154,6 @@ class FirestoreService {
       int xpDelta = task.xpReward;
       int coinDelta = task.coinReward;
 
-      // If un-checking, remove rewards
       if (!newStatus) {
         xpDelta = -xpDelta;
         coinDelta = -coinDelta;
@@ -153,12 +162,19 @@ class FirestoreService {
       int newXP = user.currentXP + xpDelta;
       int newCoins = user.currentCoins + coinDelta;
       int newLevel = user.currentLevel;
+      List<String> currentBadges = List.from(user.earnedBadges);
 
-      // Calculate Level changes
       int xpRequired = newLevel * 500;
       if (newXP >= xpRequired) {
         newLevel++;
         newXP -= xpRequired;
+        
+        if (newLevel >= 5 && !currentBadges.contains('level_5')) {
+          currentBadges.add('level_5');
+        }
+        if (newLevel >= 50 && !currentBadges.contains('level_50')) {
+          currentBadges.add('level_50');
+        }
       } else if (newXP < 0 && newLevel > 1) {
         newLevel--;
         newXP += (newLevel * 500);
@@ -171,7 +187,12 @@ class FirestoreService {
         'currentXP': newXP,
         'currentCoins': newCoins,
         'currentLevel': newLevel,
+        'earnedBadges': currentBadges, 
       });
+
+      if (newStatus) {
+        _dealBossDamage(10); 
+      }
 
       return didLevelUp;
     });
@@ -270,7 +291,6 @@ class FirestoreService {
     });
   }
 
-  // REWARD: +10 XP, +2 Coins. Returns TRUE if Level Up.
   Future<bool> logFood({
     required int calories,
     required int protein,
@@ -284,8 +304,19 @@ class FirestoreService {
     final userRef = _db.collection('users').doc(_uid);
     final nutritionRef = userRef.collection('nutrition').doc(dateId);
 
-    return await _db.runTransaction<bool>((transaction) async {
+    int dynamicMealDmg = 43; // Default
+
+    bool leveledUp = await _db.runTransaction<bool>((transaction) async {
       final nutritionDoc = await transaction.get(nutritionRef);
+      final userSnapshot = await transaction.get(userRef);
+      final user = UserModel.fromSnapshot(userSnapshot);
+      
+      // Calculate Damage dynamically!
+      dynamicMealDmg = user.targetWorkoutsPerWeek > 0 
+          ? (300 / 7).round() 
+          : (1000 / 7).round();
+
+      List<String> currentBadges = List.from(user.earnedBadges);
 
       if (nutritionDoc.exists) {
         transaction.update(nutritionRef, {
@@ -302,11 +333,18 @@ class FirestoreService {
           'fat': fat,
           'date': Timestamp.fromDate(date),
         });
+        
+        if (!currentBadges.contains('first_meal')) {
+          currentBadges.add('first_meal');
+          transaction.update(userRef, {'earnedBadges': currentBadges});
+        }
       }
 
-      // Award Rewards
       return await _awardRewards(transaction, userRef, 10, 2);
     });
+
+    await _dealBossDamage(dynamicMealDmg);
+    return leveledUp;
   }
 
   Stream<NutritionDay> getNutritionForDate(DateTime date) {
@@ -341,7 +379,6 @@ class FirestoreService {
   // 5. WORKOUT & ROUTINE METHODS
   // ===========================================================================
 
-  // Log Single Exercise -> REWARD: +20 XP, +5 Coins
   Future<bool> logExercise({
     required String name,
     required int sets,
@@ -382,7 +419,6 @@ class FirestoreService {
     });
   }
 
-  // Create Saved Routine (Plan)
   Future<void> createRoutine(String name, List<Exercise> exercises) async {
     if (_uid == null) return;
     await _db.collection('users').doc(_uid).collection('routines').add({
@@ -392,7 +428,6 @@ class FirestoreService {
     });
   }
 
-  // Get Saved Routines
   Stream<List<WorkoutRoutine>> getRoutines() {
     if (_uid == null) return const Stream.empty();
     return _db.collection('users').doc(_uid).collection('routines')
@@ -401,7 +436,6 @@ class FirestoreService {
         .map((s) => s.docs.map((d) => WorkoutRoutine.fromSnapshot(d)).toList());
   }
 
-  // Load Routine into Today's Workout
   Future<void> loadRoutineIntoToday(WorkoutRoutine routine, DateTime date) async {
     if (_uid == null) return;
     final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
@@ -425,21 +459,43 @@ class FirestoreService {
     });
   }
 
-  // FINISH WORKOUT -> BIG REWARD: +100 XP, +20 Coins
   Future<bool> finishWorkout(DateTime date) async {
     if (_uid == null) return false;
     final dateId = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
     final userRef = _db.collection('users').doc(_uid);
     final workoutRef = userRef.collection('workouts').doc(dateId);
 
-    return await _db.runTransaction<bool>((transaction) async {
+    int dynamicWorkoutDmg = 0;
+
+    bool leveledUp = await _db.runTransaction<bool>((transaction) async {
       final workoutDoc = await transaction.get(workoutRef);
       if (!workoutDoc.exists) return false; 
-      if (workoutDoc.get('isCompleted') == true) return false; // Already finished
+      if (workoutDoc.get('isCompleted') == true) return false; 
 
       transaction.update(workoutRef, {'isCompleted': true});
+      
+      final userSnapshot = await transaction.get(userRef);
+      final user = UserModel.fromSnapshot(userSnapshot);
+      
+      // Calculate Damage dynamically!
+      dynamicWorkoutDmg = user.targetWorkoutsPerWeek > 0 
+          ? (700 / user.targetWorkoutsPerWeek).round() 
+          : 0;
+
+      List<String> currentBadges = List.from(user.earnedBadges);
+      
+      if (!currentBadges.contains('first_workout')) {
+        currentBadges.add('first_workout');
+        transaction.update(userRef, {'earnedBadges': currentBadges});
+      }
+
       return await _awardRewards(transaction, userRef, 100, 20);
     });
+
+    if (dynamicWorkoutDmg > 0) {
+       await _dealBossDamage(dynamicWorkoutDmg);
+    }
+    return leveledUp;
   }
 
   Future<void> deleteExercise(DateTime date, Exercise exercise) async {
@@ -478,6 +534,8 @@ class FirestoreService {
   Future<String?> checkDailyRollover() async {
     if (_uid == null) return null;
 
+    await _ensureWeeklyBossExists();
+
     final userRef = _db.collection('users').doc(_uid);
     final userSnapshot = await userRef.get();
     
@@ -493,7 +551,6 @@ class FirestoreService {
     final lastActiveDay = DateTime(lastActive.year, lastActive.month, lastActive.day);
     final currentDay = DateTime(now.year, now.month, now.day);
 
-    // Only run if it's a new day
     if (currentDay.isBefore(lastActiveDay) || currentDay.isAtSameMomentAs(lastActiveDay)) {
       return null;
     }
@@ -546,6 +603,108 @@ class FirestoreService {
       'currentCoins': 0,
       'unlockedRewardIds': [],
       'selectedAvatarId': 'default',
+      'earnedBadges': [], 
+    });
+  }
+
+  // ===========================================================================
+  // 8. BOSS BATTLE METHODS
+  // ===========================================================================
+
+  String _getCurrentWeekBossId() {
+    DateTime now = DateTime.now();
+    DateTime monday = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    return "boss_${monday.year}_${monday.month.toString().padLeft(2, '0')}_${monday.day.toString().padLeft(2, '0')}";
+  }
+
+  Stream<BossModel?> getCurrentBossStream() {
+    if (_uid == null) return const Stream.empty();
+    
+    String bossId = _getCurrentWeekBossId();
+    
+    return _db.collection('users').doc(_uid).collection('boss_battles').doc(bossId)
+      .snapshots()
+      .map((doc) {
+        if (!doc.exists) return null;
+        return BossModel.fromSnapshot(doc);
+      });
+  }
+
+  Future<void> _ensureWeeklyBossExists() async {
+    if (_uid == null) return;
+
+    String bossId = _getCurrentWeekBossId();
+    final bossRef = _db.collection('users').doc(_uid).collection('boss_battles').doc(bossId);
+    
+    final bossDoc = await bossRef.get();
+    
+    if (bossDoc.exists) return;
+
+    DateTime now = DateTime.now();
+    DateTime startOfWeek = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    DateTime endOfWeek = startOfWeek.add(const Duration(days: 6, hours: 23, minutes: 59, seconds: 59));
+
+    List<String> bossNames = [
+      "The Junk Food Golem",
+      "The Couch Potato King",
+      "The Procrastination Phantom",
+      "The Sugar Slime",
+      "The Snooze Button Behemoth"
+    ];
+    bossNames.shuffle();
+
+    await bossRef.set({
+      'name': bossNames.first,
+      'maxHp': 1000,
+      'currentHp': 1000,
+      'isDefeated': false,
+      'startDate': Timestamp.fromDate(startOfWeek),
+      'endDate': Timestamp.fromDate(endOfWeek),
+    });
+  }
+
+  Future<void> _dealBossDamage(int damage) async {
+    if (_uid == null) return;
+    
+    String bossId = _getCurrentWeekBossId();
+    final bossRef = _db.collection('users').doc(_uid).collection('boss_battles').doc(bossId);
+    final userRef = _db.collection('users').doc(_uid);
+
+    await _db.runTransaction((transaction) async {
+      final bossDoc = await transaction.get(bossRef);
+      if (!bossDoc.exists) return;
+
+      final boss = BossModel.fromSnapshot(bossDoc);
+      
+      if (boss.isDefeated) return;
+
+      int newHp = boss.currentHp - damage;
+      if (newHp < 0) newHp = 0;
+      
+      bool isNowDefeated = newHp == 0;
+
+      transaction.update(bossRef, {
+        'currentHp': newHp,
+        'isDefeated': isNowDefeated,
+      });
+
+      if (isNowDefeated) {
+        final userSnapshot = await transaction.get(userRef);
+        if (userSnapshot.exists) {
+          final user = UserModel.fromSnapshot(userSnapshot);
+          
+          int bonusXp = 500;
+          int bonusCoins = 100;
+          List<String> badges = List.from(user.earnedBadges);
+          
+          if (!badges.contains('boss_slayer_1')) {
+            badges.add('boss_slayer_1');
+          }
+
+          await _awardRewards(transaction, userRef, bonusXp, bonusCoins);
+          transaction.update(userRef, {'earnedBadges': badges});
+        }
+      }
     });
   }
 }

@@ -9,12 +9,14 @@ class UserModel {
   final int currentCoins;
   final List<String> unlockedRewardIds;
   final String selectedAvatarId;
+  final List<String> earnedBadges; 
   
-  // --- NEW: NUTRITION GOALS ---
+  // --- NUTRITION & WORKOUT GOALS ---
   final int calorieGoal;
-  final int proteinGoal; // in grams
-  final int carbsGoal;   // in grams
-  final int fatGoal;     // in grams
+  final int proteinGoal; 
+  final int carbsGoal;   
+  final int fatGoal;     
+  final int targetWorkoutsPerWeek; // <--- NEW: Dynamic Boss Scaling
 
   UserModel({
     required this.uid,
@@ -25,11 +27,12 @@ class UserModel {
     this.currentCoins = 0,
     this.unlockedRewardIds = const [],
     this.selectedAvatarId = 'default',
-    // Default Goals
+    this.earnedBadges = const [], 
     this.calorieGoal = 2000,
     this.proteinGoal = 150,
     this.carbsGoal = 200,
     this.fatGoal = 70,
+    this.targetWorkoutsPerWeek = 3, // <--- Default to 3
   });
 
   factory UserModel.fromSnapshot(DocumentSnapshot doc) {
@@ -43,11 +46,12 @@ class UserModel {
       currentCoins: data['currentCoins'] ?? 0,
       unlockedRewardIds: List<String>.from(data['unlockedRewardIds'] ?? []),
       selectedAvatarId: data['selectedAvatarId'] ?? 'default',
-      // Parse Goals
+      earnedBadges: List<String>.from(data['earnedBadges'] ?? []), 
       calorieGoal: data['calorieGoal'] ?? 2000,
       proteinGoal: data['proteinGoal'] ?? 150,
       carbsGoal: data['carbsGoal'] ?? 200,
       fatGoal: data['fatGoal'] ?? 70,
+      targetWorkoutsPerWeek: data['targetWorkoutsPerWeek'] ?? 3, // <--- NEW
     );
   }
 
@@ -60,12 +64,13 @@ class UserModel {
       'currentCoins': currentCoins,
       'unlockedRewardIds': unlockedRewardIds,
       'selectedAvatarId': selectedAvatarId,
+      'earnedBadges': earnedBadges, 
       'lastActiveDate': FieldValue.serverTimestamp(),
-      // Save Goals
       'calorieGoal': calorieGoal,
       'proteinGoal': proteinGoal,
       'carbsGoal': carbsGoal,
       'fatGoal': fatGoal,
+      'targetWorkoutsPerWeek': targetWorkoutsPerWeek, // <--- NEW
     };
   }
 }

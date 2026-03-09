@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:table_calendar/table_calendar.dart'; // Calendar Package
+import 'package:table_calendar/table_calendar.dart'; 
 import '../models/task_model.dart';
 import '../models/user_model.dart';
 import '../services/firestore_service.dart';
 import '../widgets/progress_card.dart';
 import '../widgets/task_tile.dart';
-import '../widgets/quote_widget.dart'; // Motivational Quote
-import '../widgets/completion_chart.dart'; // <--- NEW IMPORT
+import '../widgets/quote_widget.dart'; 
+import '../widgets/completion_chart.dart'; 
+import '../widgets/boss_battle_card.dart'; 
 import 'add_task_screen.dart';
 import 'shop_screen.dart';
 import 'settings_screen.dart';
 import 'nutrition_screen.dart'; 
 import 'workout_screen.dart';   
+import 'trophy_room_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,24 +23,20 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Keep track of which tasks are currently loading to prevent double-clicks
   final Set<String> _updatingTaskIds = {}; 
   
-  // --- CALENDAR STATE ---
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
-  CalendarFormat _calendarFormat = CalendarFormat.week; // Default to week view
+  CalendarFormat _calendarFormat = CalendarFormat.week; 
 
   @override
   void initState() {
     super.initState();
-    // Run the rollover check after the widget builds
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _runDailyCheck();
     });
   }
 
-  // --- DAILY ROLLOVER CHECK ---
   void _runDailyCheck() async {
     final firestore = FirestoreService();
     final summary = await firestore.checkDailyRollover();
@@ -60,7 +58,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- LEVEL UP DIALOG ---
   void _showLevelUpDialog() {
     showDialog(
       context: context,
@@ -90,12 +87,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${months[now.month - 1]} ${now.day}, ${now.year}';
   }
 
-  // Generic Task Navigation
   void _navigateToAddTask(BuildContext context, {String? category}) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        // Pass the currently selected day to the Add Task screen
         builder: (_) => AddTaskScreen(
           initialCategory: category,
           initialDate: _selectedDay, 
@@ -104,7 +99,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Safe Toggle Method to handle Firestore transactions
   Future<void> _handleTaskToggle(Task task, bool newValue, FirestoreService firestore) async {
     setState(() {
       _updatingTaskIds.add(task.id);
@@ -164,6 +158,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   Row(
                     children: [
                       IconButton(
+                        tooltip: "Trophy Room",
+                        icon: const Icon(Icons.emoji_events, color: Colors.amber, size: 28),
+                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrophyRoomScreen())),
+                      ),
+                      IconButton(
                         tooltip: "Item Shop",
                         icon: const Icon(Icons.store, color: Colors.deepPurple, size: 28),
                         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ShopScreen())),
@@ -180,12 +179,11 @@ class _HomeScreenState extends State<HomeScreen> {
               
               const SizedBox(height: 24),
 
-              // --- MOTIVATIONAL QUOTE WIDGET ---
               const QuoteWidget(), 
 
               const SizedBox(height: 24),
 
-              // --- Progress Card ---
+              // --- Progress Card AND Boss Card nested in the User Stream ---
               StreamBuilder<UserModel>(
                 stream: firestore.getUserStream(),
                 builder: (context, snapshot) {
@@ -195,12 +193,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   final user = snapshot.data!;
                   double progress = user.currentXP / 500.0;
                   
-                  return ProgressCard(
-                    level: user.currentLevel,
-                    currentXP: user.currentXP,
-                    currentCoins: user.currentCoins,
-                    progress: progress,
-                    selectedAvatarId: user.selectedAvatarId, 
+                  return Column(
+                    children: [
+                      ProgressCard(
+                        level: user.currentLevel,
+                        currentXP: user.currentXP,
+                        currentCoins: user.currentCoins,
+                        progress: progress,
+                        selectedAvatarId: user.selectedAvatarId, 
+                      ),
+                      const SizedBox(height: 24),
+                      // --- Pass the loaded user directly into the BossBattleCard ---
+                      BossBattleCard(user: user),
+                    ],
                   );
                 },
               ),
@@ -218,7 +223,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisSpacing: 12,
                 childAspectRatio: 2.5,
                 children: [
-                  // 1. Log Workout (Opens WorkoutScreen)
                   _buildActionButton(
                     context, 
                     Icons.directions_run, 
@@ -233,7 +237,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                   
-                  // 2. Nutrition Tracker (Opens NutritionScreen)
                   _buildActionButton(
                     context, 
                     Icons.restaurant, 
@@ -248,10 +251,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                   ),
                   
-                  // 3. Generic Water (Still a generic task for now)
                   _buildActionButton(context, Icons.local_drink, 'Log Water', Colors.blue, 'Nutrition'),
-                  
-                  // 4. Custom Task
                   _buildActionButton(context, Icons.add, 'Custom', Colors.purple, 'Custom'),
                 ],
               ),
@@ -296,14 +296,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24), // Spacing
+              const SizedBox(height: 24), 
 
-              // --- NEW: COMPLETION CHART ---
               const CompletionChart(),
 
               const SizedBox(height: 16),
 
-              // --- Tasks List (Filtered by Calendar Selection) ---
+              // --- Tasks List ---
               StreamBuilder<List<Task>>(
                 stream: firestore.getTasksForDay(_selectedDay), 
                 builder: (context, snapshot) {
@@ -358,7 +357,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Updated Button Builder with optional Override
   Widget _buildActionButton(BuildContext context, IconData icon, String label, Color color, String category, {VoidCallback? onPressedOverride}) {
     return Container(
       decoration: BoxDecoration(
@@ -367,7 +365,6 @@ class _HomeScreenState extends State<HomeScreen> {
         border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: InkWell(
-        // Use the override if provided, otherwise default to Task Creator
         onTap: onPressedOverride ?? () => _navigateToAddTask(context, category: category),
         borderRadius: BorderRadius.circular(16),
         child: Row(
