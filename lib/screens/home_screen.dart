@@ -78,6 +78,38 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showEditNameDialog(String currentName) {
+    final nameController = TextEditingController(text: currentName);
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Edit Preferred Name"),
+        content: TextField(
+          controller: nameController,
+          maxLength: 15, // --- FIXED: Added 15 character limit ---
+          decoration: const InputDecoration(
+            hintText: "What should we call you?",
+            prefixIcon: Icon(Icons.person),
+          ),
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          FilledButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty) {
+                FirestoreService().updateUsername(nameController.text);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
   String get _formattedDate {
     final now = DateTime.now();
     final List<String> months = [
@@ -142,20 +174,55 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Welcome Back,',
-                        style: theme.textTheme.headlineSmall?.copyWith(color: Colors.grey[600]),
-                      ),
-                      Text(
-                        _formattedDate,
-                        style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                    ],
+                  // --- FIXED: Wrapped in Expanded to prevent overflow ---
+                  Expanded(
+                    child: StreamBuilder<UserModel>(
+                      stream: firestore.getUserStream(),
+                      builder: (context, snapshot) {
+                        String displayName = "Champion";
+                        if (snapshot.hasData) {
+                          displayName = snapshot.data!.username;
+                          if (displayName.contains('@')) {
+                            displayName = displayName.split('@')[0];
+                          }
+                        }
+
+                        return GestureDetector(
+                          onTap: () => _showEditNameDialog(displayName),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Welcome Back,',
+                                style: theme.textTheme.headlineSmall?.copyWith(color: Colors.grey[600]),
+                              ),
+                              // --- FIXED: FittedBox automatically shrinks text if it's too long ---
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      displayName,
+                                      style: theme.textTheme.headlineMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.edit, size: 16, color: Colors.grey.shade400),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    ),
                   ),
+                  const SizedBox(width: 16), // Gives a little breathing room before the buttons
                   Row(
+                    mainAxisSize: MainAxisSize.min, // Keeps buttons packed tightly
                     children: [
                       IconButton(
                         tooltip: "Trophy Room",
@@ -183,7 +250,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 24),
 
-              // --- Progress Card AND Boss Card nested in the User Stream ---
               StreamBuilder<UserModel>(
                 stream: firestore.getUserStream(),
                 builder: (context, snapshot) {
@@ -203,7 +269,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         selectedAvatarId: user.selectedAvatarId, 
                       ),
                       const SizedBox(height: 24),
-                      // --- Pass the loaded user directly into the BossBattleCard ---
                       BossBattleCard(user: user),
                     ],
                   );
@@ -212,7 +277,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 32),
 
-              // --- Quick Actions Grid ---
               Text('Quick Actions', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
               GridView.count(
@@ -258,7 +322,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 32),
 
-              // --- CALENDAR WIDGET ---
               Card(
                 elevation: 0,
                 color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
@@ -302,7 +365,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 16),
 
-              // --- Tasks List ---
               StreamBuilder<List<Task>>(
                 stream: firestore.getTasksForDay(_selectedDay), 
                 builder: (context, snapshot) {

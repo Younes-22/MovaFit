@@ -11,12 +11,15 @@ class UserModel {
   final String selectedAvatarId;
   final List<String> earnedBadges; 
   
-  // --- NUTRITION & WORKOUT GOALS ---
   final int calorieGoal;
   final int proteinGoal; 
   final int carbsGoal;   
   final int fatGoal;     
-  final int targetWorkoutsPerWeek; // <--- NEW: Dynamic Boss Scaling
+  final int targetWorkoutsPerWeek;
+
+  // --- NEW FIELDS ---
+  final List<String> dietaryRestrictions; // e.g. ['Halal', 'Vegan', 'No Nuts']
+  final String fitnessGoal; // e.g. 'Lose Weight', 'Build Muscle', 'Maintain'
 
   UserModel({
     required this.uid,
@@ -32,7 +35,9 @@ class UserModel {
     this.proteinGoal = 150,
     this.carbsGoal = 200,
     this.fatGoal = 70,
-    this.targetWorkoutsPerWeek = 3, // <--- Default to 3
+    this.targetWorkoutsPerWeek = 3,
+    this.dietaryRestrictions = const [], // Default empty
+    this.fitnessGoal = 'Maintain', // Default Maintain
   });
 
   factory UserModel.fromSnapshot(DocumentSnapshot doc) {
@@ -51,7 +56,9 @@ class UserModel {
       proteinGoal: data['proteinGoal'] ?? 150,
       carbsGoal: data['carbsGoal'] ?? 200,
       fatGoal: data['fatGoal'] ?? 70,
-      targetWorkoutsPerWeek: data['targetWorkoutsPerWeek'] ?? 3, // <--- NEW
+      targetWorkoutsPerWeek: data['targetWorkoutsPerWeek'] ?? 3,
+      dietaryRestrictions: List<String>.from(data['dietaryRestrictions'] ?? []),
+      fitnessGoal: data['fitnessGoal'] ?? 'Maintain',
     );
   }
 
@@ -70,7 +77,9 @@ class UserModel {
       'proteinGoal': proteinGoal,
       'carbsGoal': carbsGoal,
       'fatGoal': fatGoal,
-      'targetWorkoutsPerWeek': targetWorkoutsPerWeek, // <--- NEW
+      'targetWorkoutsPerWeek': targetWorkoutsPerWeek,
+      'dietaryRestrictions': dietaryRestrictions,
+      'fitnessGoal': fitnessGoal,
     };
   }
 }

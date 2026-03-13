@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:mobile_scanner/mobile_scanner.dart'; // Ensure this package is installed
+import 'package:mobile_scanner/mobile_scanner.dart'; 
 import '../models/user_model.dart';
 import '../models/nutrition_model.dart';
 import '../services/firestore_service.dart';
-import '../services/food_service.dart'; 
+import '../services/food_service.dart';
+import 'ai_chat_screen.dart';
+
 
 class NutritionScreen extends StatefulWidget {
   const NutritionScreen({super.key});
@@ -20,17 +22,15 @@ class _NutritionScreenState extends State<NutritionScreen> {
   // --- ACTIONS ---
 
   Future<void> _scanBarcode(BuildContext context) async {
-    // Navigate to the scanner page
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) {
-          bool isScanned = false; // LOCK VARIABLE
+          bool isScanned = false; 
           
           return Scaffold(
             appBar: AppBar(title: const Text('Scan Barcode')),
             body: MobileScanner(
-              // Simple overlay to guide the user
               overlayBuilder: (context, constraints) {
                 return Container(
                   decoration: BoxDecoration(
@@ -47,14 +47,14 @@ class _NutritionScreenState extends State<NutritionScreen> {
                 );
               },
               onDetect: (capture) {
-                if (isScanned) return; // Ignore if already scanned
+                if (isScanned) return; 
                 
                 final List<Barcode> barcodes = capture.barcodes;
                 if (barcodes.isNotEmpty) {
                   final String? code = barcodes.first.rawValue;
                   if (code != null) {
-                    isScanned = true; // Lock it!
-                    Navigator.pop(context, code); // Return the code
+                    isScanned = true; 
+                    Navigator.pop(context, code); 
                   }
                 }
               },
@@ -64,7 +64,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
       ),
     );
 
-    // Handle the result
     if (result != null && result is String) {
       setState(() => _isSearching = true);
       
@@ -91,7 +90,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
     }
   }
 
-  // 2. Search Dialog Logic
   void _showSearchDialog(BuildContext context) {
     final searchController = TextEditingController();
     
@@ -178,7 +176,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
     );
   }
 
-  // 3. Log Food Dialog (With Real-time Macro Calculation)
   void _showLogFoodDialog(BuildContext context, {FoodItem? initialFood}) {
     final servingController = TextEditingController(text: '100');
     final calController = TextEditingController(text: initialFood?.calories.toString() ?? '');
@@ -186,7 +183,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
     final carbController = TextEditingController(text: initialFood?.carbs.toString() ?? '');
     final fatController = TextEditingController(text: initialFood?.fat.toString() ?? '');
 
-    // Dynamically recalculate macros based on the grams entered
     void recalculateMacros() {
       if (initialFood == null) return;
       final amount = double.tryParse(servingController.text) ?? 0.0;
@@ -214,7 +210,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
                     labelText: 'Amount Consumed',
                     suffixText: 'g / ml',
                   ),
-                  onChanged: (val) => recalculateMacros(), // Trigger math when typed!
+                  onChanged: (val) => recalculateMacros(), 
                 ),
                 const SizedBox(height: 16),
                 const Divider(),
@@ -263,7 +259,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
                 );
                 
                 if (!context.mounted) return;
-                Navigator.pop(ctx); // Close Dialog
+                Navigator.pop(ctx); 
 
                 if (leveledUp) {
                   showDialog(
@@ -341,6 +337,15 @@ class _NutritionScreenState extends State<NutritionScreen> {
       appBar: AppBar(
         title: const Text('Nutrition Tracker'),
         actions: [
+          // --- NEW: ASK AI BUTTON ---
+          IconButton(
+            icon: const Icon(Icons.psychology, color: Colors.deepPurple),
+            tooltip: "Ask AI Nutritionist",
+            onPressed: () => Navigator.push(
+              context, 
+              MaterialPageRoute(builder: (_) => const AIChatScreen())
+            ),
+          ),
           StreamBuilder<UserModel>(
             stream: firestore.getUserStream(),
             builder: (context, snapshot) {
@@ -367,14 +372,12 @@ class _NutritionScreenState extends State<NutritionScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. Weekly Graph Section
                 Text("Weekly History", style: theme.textTheme.titleMedium),
                 const SizedBox(height: 12),
                 _buildWeeklyGraph(firestore, user.calorieGoal, theme),
 
                 const SizedBox(height: 32),
 
-                // 2. Today's Summary Section
                 Text("Today's Summary", style: theme.textTheme.titleMedium),
                 const SizedBox(height: 12),
                 _buildTodaySummary(firestore, user, theme),
@@ -383,7 +386,6 @@ class _NutritionScreenState extends State<NutritionScreen> {
           );
         },
       ),
-      // --- FAB: Search/Scan or Manual ---
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
